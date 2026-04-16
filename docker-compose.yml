@@ -1,0 +1,107 @@
+version: "3.9"
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  dqa-net:
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  mongo-data:
+  uploads-data:
+  redis-data:
+
+# ── Services ─────────────────────────────────────────────────────────────────
+services:
+
+  # ── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: dqa-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: data_quality
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - dqa-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (optional — remove this block if not needed) ─────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: dqa-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - dqa-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dqa-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist uploaded files outside the container
+      - uploads-data:/app/data/uploads
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: data_quality
+      UPLOAD_DIR: ./data/uploads
+      ALLOWED_ORIGINS: http://localhost,http://frontend
+      MAX_UPLOAD_SIZE_MB: "100"
+      # Redis — remove or leave blank to use in-memory cache
+      REDIS_URL: redis://redis:6379/0
+      REDIS_CACHE_TTL: "3600"
+      # Performance
+      ANALYSIS_CACHE_SIZE: "256"
+      MAX_PROFILE_ROWS: "50000"
+      # Rate limiting
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT: 200/minute
+      # Features
+      ASYNC_ANALYSIS_ENABLED: "true"
+      SIGNED_URLS_ENABLED: "false"
+      SIGNED_URL_SECRET: change-me-in-production
+      SIGNED_URL_TTL_SECONDS: "3600"
+      # Timezone
+      TZ: Asia/Kolkata
+    networks:
+      - dqa-net
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Must point to the backend as seen from the user's browser
+        VITE_API_URL: http://localhost:8000
+    container_name: dqa-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - dqa-net
