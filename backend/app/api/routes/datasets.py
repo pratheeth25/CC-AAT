@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, File, UploadFile
 
 from app.services import dataset_service
+from app.services import alert_service
 from app.services.cache_service import analysis_cache
 from app.utils.response_utils import success_response
 
@@ -66,4 +67,5 @@ async def delete_dataset(dataset_id: str) -> Dict[str, Any]:
     """
     result = await dataset_service.delete_dataset(dataset_id)
     analysis_cache.invalidate(dataset_id)
+    await alert_service.delete_dataset_alerts(dataset_id)
     return success_response(result, f"Dataset '{result['name']}' deleted successfully.")

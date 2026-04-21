@@ -94,7 +94,7 @@ def _analyse_duplicates(
     exact = int(df_raw.duplicated().sum())
 
     # Logical duplicates ignore probable ID columns
-    id_cols = [c for c in df_raw.columns if c.lower() in _ID_COLUMN_HINTS]
+    id_cols = [c for c in df_raw.columns if str(c).lower() in _ID_COLUMN_HINTS]
     non_id = [c for c in df_raw.columns if c not in id_cols]
     logical = int(df_raw.duplicated(subset=non_id).sum()) if non_id else exact
 

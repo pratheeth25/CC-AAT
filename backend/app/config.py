@@ -10,11 +10,6 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
     ALLOWED_ORIGINS: str = "http://localhost:5173"
     MAX_UPLOAD_SIZE_MB: int = 100
-    # ── Redis (optional) ──────────────────────────────────────────────────────
-    # Leave blank to use the built-in in-memory LRU cache
-    REDIS_URL: str = ""
-    # TTL for cached analysis results in Redis (seconds)
-    REDIS_CACHE_TTL: int = 3600
     # ── Performance ──────────────────────────────────────────────────────────
     # Max number of analysis results to keep in the in-memory LRU cache
     ANALYSIS_CACHE_SIZE: int = 128
@@ -33,15 +28,6 @@ class Settings(BaseSettings):
     SIGNED_URLS_ENABLED: bool = False
     SIGNED_URL_SECRET: str = "change-me-in-production"
     SIGNED_URL_TTL_SECONDS: int = 3600
-
-    # ── AWS S3 storage (optional) ────────────────────────────────────────────
-    # Set S3_ENABLED=true to store uploaded files in S3 instead of local disk.
-    # MongoDB still stores all metadata; only raw files go to S3.
-    S3_ENABLED: bool = False
-    S3_BUCKET: str = ""
-    S3_REGION: str = "ap-south-1"
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

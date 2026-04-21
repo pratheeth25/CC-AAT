@@ -1,10 +1,13 @@
 import axios from 'axios'
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// In production the frontend container is served by nginx, which proxies
+// /api/* → http://backend:8000/*  (stripping the /api prefix).
+// VITE_API_URL is baked in at build time; the docker-compose default is /api.
+const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 60_000,
+  timeout: 120_000, // 2 min — large uploads + analysis can be slow on EC2
 })
 
 // Unwrap { status, data } envelope

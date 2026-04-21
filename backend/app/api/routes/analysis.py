@@ -233,7 +233,25 @@ async def get_repairs(
         dataset_id, version
     )
     df = load_dataframe(file_path, file_type)
+    df.columns = df.columns.map(str)  # guard against non-string column names
     profile = profiling_service.profile_dataframe(df)
+
+    # Skip suggestions when dataset is already high quality
+    anomaly_results = anomaly_service.detect_anomalies(df)
+    quality = quality_service.calculate_quality_score(
+        profile=profile, anomaly_results=anomaly_results, df=df
+    )
+    if quality["total_score"] > 80:
+        return success_response(
+            {
+                "dataset_id": dataset_id,
+                "version": resolved_version,
+                "suggestions": [],
+                "skipped": True,
+                "message": f"Dataset quality score is {quality['total_score']:.1f} — no repairs needed.",
+            }
+        )
+
     suggestions = repair_service.suggest_repairs(df, profile)
 
     return success_response(

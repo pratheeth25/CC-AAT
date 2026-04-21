@@ -35,6 +35,8 @@ async def clean_dataset(
       "fix_missing_categorical": true,
       "fix_duplicates": true,
       "standardize_dates": true,
+      "fix_emails": true,
+      "normalize_countries": true,
       "normalize_case": "lower",
       "remove_outliers": false,
       "version": null

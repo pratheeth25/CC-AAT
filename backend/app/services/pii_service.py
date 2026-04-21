@@ -105,7 +105,7 @@ def detect_pii(df: pd.DataFrame) -> Dict[str, Any]:
         if series.empty:
             continue
 
-        col_lower = col.lower().strip().replace(" ", "_")
+        col_lower = str(col).lower().strip().replace(" ", "_")
         hint_type = _NAME_HINTS.get(col_lower)
 
         best: Dict[str, Any] | None = None

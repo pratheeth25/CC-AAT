@@ -101,7 +101,7 @@ def detect_anomalies(df: pd.DataFrame, method: str = "all") -> List[Dict[str, An
 
     for col in df.columns:
         series = df[col]
-        col_lower = col.lower().strip()
+        col_lower = str(col).lower().strip()
 
         # ── RULE: Skip ID / key columns entirely ──
         if col_lower in _ID_COLUMNS:

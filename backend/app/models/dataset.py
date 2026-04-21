@@ -173,6 +173,8 @@ class CleaningRequest(BaseModel):
     standardize_dates: bool = True
     normalize_case: Optional[str] = None     # "lower" | "upper" | "title" | None
     remove_outliers: bool = False
+    fix_emails: bool = True
+    normalize_countries: bool = True
     version: Optional[int] = None            # source version; None = current
 
 

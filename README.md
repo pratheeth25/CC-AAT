@@ -102,15 +102,34 @@ cctaat/
 
 ---
 
-## Default Service URLs
+## Deployment (EC2 + Docker)
+
+```bash
+# On EC2
+cp backend/.env.example backend/.env
+nano backend/.env                          # set MONGO_URI and ALLOWED_ORIGINS
+docker compose up -d --build
+```
+
+| Service | URL |
+|---|---|
+| Frontend | `http://<EC2_PUBLIC_IP>` |
+| API Docs | `http://<EC2_PUBLIC_IP>/api/docs` |
+| Health | `http://<EC2_PUBLIC_IP>/api/health` |
+
+**EC2 Security Group:** open inbound TCP **port 80** only. Port 8000 stays internal.  
+**Atlas Network Access:** add the EC2 public IP to allow the backend to connect.
+
+---
+
+## Local Development URLs
 
 | Service | URL |
 |---|---|
 | Frontend (Vite dev) | http://localhost:5173 |
 | Backend (FastAPI) | http://localhost:8000 |
 | API Docs (Swagger) | http://localhost:8000/docs |
-| MongoDB | mongodb://localhost:27017 |
 
 ---
 
-> See **RUN.md** for full start-up instructions.
+> See **RUN.md** for full setup and deployment instructions.

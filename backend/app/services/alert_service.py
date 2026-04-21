@@ -139,6 +139,11 @@ async def get_all_alerts(dataset_id: str | None = None) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {}
     if dataset_id:
         query["dataset_id"] = dataset_id
+    else:
+        # Filter out orphaned alerts whose dataset no longer exists
+        active_oids = await db["datasets"].distinct("_id")
+        active_ids = [str(oid) for oid in active_oids]
+        query["dataset_id"] = {"$in": active_ids}
     cursor = db[COLLECTION].find(query).sort("triggered_at", -1)
     return [_serialise(doc) async for doc in cursor]
 
@@ -149,6 +154,14 @@ async def mark_alert_read(alert_id: str) -> bool:
         {"_id": ObjectId(alert_id)}, {"$set": {"is_read": True}}
     )
     return result.modified_count > 0
+
+
+async def delete_dataset_alerts(dataset_id: str) -> int:
+    """Delete all alerts belonging to a dataset. Returns the count removed."""
+    db = get_database()
+    result = await db[COLLECTION].delete_many({"dataset_id": dataset_id})
+    logger.info("Deleted %d alert(s) for dataset %s", result.deleted_count, dataset_id)
+    return result.deleted_count
 
 
 # ---------------------------------------------------------------------------

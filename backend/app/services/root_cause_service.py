@@ -239,7 +239,7 @@ def analyze_root_causes(
             pii_idx[c["column_name"]] = c
 
     for col in df.columns:
-        col_lower = col.lower().strip()
+        col_lower = str(col).lower().strip()
         series    = df[col].dropna()
         causes: List[RootCause] = []
 
@@ -341,7 +341,7 @@ def suggest_fix_steps(
     col_analyses = root_cause_analysis.get("columns", {})
 
     for col, analysis in col_analyses.items():
-        col_lower = col.lower().strip()
+        col_lower = str(col).lower().strip()
         for rc in analysis.get("root_causes", []):
             group = rc.get("group", "")
             sev   = rc.get("severity", "low")

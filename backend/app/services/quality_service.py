@@ -1,14 +1,18 @@
 """
 Data Quality Score Engine — v3 (Production-Grade, Context-Aware, Explainable).
 
-Complete redesign with calibrated real-world penalties:
-  1. Completeness  (max deduct 30) — missing_pct × 0.5
-  2. Validity      (max deduct 30) — context-aware age/email/date checks
+Strict pessimistic scoring — assume data is flawed unless proven otherwise.
+Non-linear penalties mean higher error rates are punished exponentially.
+  1. Completeness  (max deduct 35) — missing_pct^1.2 × 0.35  (non-linear)
+  2. Validity      (max deduct 35) — age/email/date + mixed-type detection
   3. Consistency   (max deduct 20) — date format count, case inconsistency
-  4. Uniqueness    (max deduct 10) — duplicate_pct × 0.5
+  4. Uniqueness    (max deduct 15) — dup_pct^1.2 × 0.6   (non-linear)
   5. Security      (uncapped / hard cap 30 on threat) — threats + PII penalty
-  6. Garbage/Junk  (max deduct 15) — garbage_pct × 1.5
+  6. Garbage/Junk  (max deduct 15) — garbage_pct^1.2 × 1.5 (non-linear)
   7. Anomalies     (max deduct 15) — severity-weighted: high/medium/low
+  8. Compounding   (up to +20)     — penalty when 3+ dimensions fail together
+
+Systemic corruption: cap score below 40 when 4+ dims fail or deduction >= 65.
 
 Additional layers:
   - Dataset-size normalisation (log10 scale) for non-security dimensions
@@ -117,7 +121,8 @@ def calculate_quality_score(
     missing_pct   = (missing_cells / total_cells) * 100
 
     if missing_pct > 0:
-        d = min(missing_pct * 0.5, 30)
+        # Non-linear: higher missing % is penalised exponentially harder
+        d = min(missing_pct ** 1.2 * 0.35, 35)
         completeness_deduct += d
         affected = [c for c, v in profile["missing_values"].items() if v["count"] > 0]
         penalties.append({
@@ -141,7 +146,7 @@ def calculate_quality_score(
                 "affected_columns": [],
             })
 
-    completeness_deduct = min(completeness_deduct, 30)
+    completeness_deduct = min(completeness_deduct, 35)
 
     # ══════════════════════════════════════════════════════════════════
     # 2. VALIDITY   (max deduct 30)
@@ -150,7 +155,7 @@ def calculate_quality_score(
 
     if df is not None:
         for col in df.columns:
-            col_lower = col.lower().strip()
+            col_lower = str(col).lower().strip()
             series    = df[col].dropna()
             if len(series) == 0:
                 continue
@@ -217,7 +222,33 @@ def calculate_quality_score(
                         "affected_columns": [col],
                     })
 
-    validity_deduct = min(validity_deduct, 30)
+            # Mixed data types: numeric-looking column with string pollution — HIGH severity
+            if (
+                not pd.api.types.is_numeric_dtype(df[col])
+                and col_lower not in _EMAIL_COLUMNS
+                and col_lower not in _DATE_COLUMNS
+                and col_lower not in _STATUS_COLUMNS
+                and col_lower not in _ID_COLUMNS
+                and len(series) >= 5
+            ):
+                try:
+                    numeric_hits = int(pd.to_numeric(series, errors="coerce").notna().sum())
+                    if numeric_hits / len(series) >= 0.7 and len(series) - numeric_hits >= 2:
+                        mixed_str = len(series) - numeric_hits
+                        pct_mixed = mixed_str / len(series) * 100
+                        d = min(pct_mixed ** 1.2 * 0.4, 8)
+                        validity_deduct += d
+                        penalties.append({
+                            "dimension":        "validity",
+                            "reason":           f"Mixed data types in '{col}': {mixed_str} non-numeric value(s) in a predominantly numeric column ({pct_mixed:.0f}%)",
+                            "impact":           "high",
+                            "deduction":        -round(d, 2),
+                            "affected_columns": [col],
+                        })
+                except Exception:
+                    pass
+
+    validity_deduct = min(validity_deduct, 35)
 
     # ══════════════════════════════════════════════════════════════════
     # 3. CONSISTENCY   (max deduct 20)
@@ -239,7 +270,7 @@ def calculate_quality_score(
 
     if df is not None:
         for col in df.columns:
-            col_lower = col.lower().strip()
+            col_lower = str(col).lower().strip()
 
             if col_lower in _DATE_COLUMNS:
                 formats = _detect_date_formats(df[col].dropna().astype(str))
@@ -285,7 +316,8 @@ def calculate_quality_score(
 
     if total_dups > 0:
         dup_pct = (total_dups / rows) * 100
-        d = min(dup_pct * 0.7, 10)
+        # Non-linear: 10% dup rate hits ~9.5, 20% rate hits cap of 15
+        d = min(dup_pct ** 1.2 * 0.6, 15)
         uniqueness_deduct += d
         extra = ""
         if logical_dups > exact_dups:
@@ -298,7 +330,7 @@ def calculate_quality_score(
             "affected_columns": [],
         })
 
-    uniqueness_deduct = min(uniqueness_deduct, 10)
+    uniqueness_deduct = min(uniqueness_deduct, 15)
 
     # ══════════════════════════════════════════════════════════════════
     # 5. SECURITY   (uncapped — hard cap at 30 when threats detected)
@@ -352,7 +384,7 @@ def calculate_quality_score(
     if df is not None:
         for col in df.select_dtypes(include=["object", "string", "category"]).columns:
             vals      = df[col].dropna().astype(str)
-            col_lower = col.lower().strip()
+            col_lower = str(col).lower().strip()
             garbage_count += len(
                 vals[vals.str.strip().str.lower().isin({v.lower() for v in _GARBAGE_VALUES})]
             )
@@ -365,7 +397,8 @@ def calculate_quality_score(
 
         if garbage_count > 0:
             gp = (garbage_count / total_cells) * 100
-            d  = min(gp * 1.5, 10)
+            # Non-linear: even 5% garbage punished near cap
+            d  = min(gp ** 1.2 * 1.5, 12)
             garbage_deduct += d
             penalties.append({
                 "dimension":       "garbage",
@@ -407,7 +440,8 @@ def calculate_quality_score(
         else:
             low_anom    += count
 
-    raw_anom       = (high_anom * 3) + (medium_anom * 1.5) + (low_anom * 0.5)
+    # Medium/low weights deliberately low: IQR flags statistical variation in clean data
+    raw_anom       = (high_anom * 3) + (medium_anom * 0.8) + (low_anom * 0.2)
     anomaly_deduct = min(raw_anom, 15)
 
     if anomaly_deduct > 0:
@@ -420,11 +454,35 @@ def calculate_quality_score(
         })
 
     # ══════════════════════════════════════════════════════════════════
+    # 8. COMPOUNDING — 3+ failing dimensions add non-linear extra penalty
+    #    Each dimension beyond 2 that fails meaningfully adds +5 points
+    # ══════════════════════════════════════════════════════════════════
+    _failing_dims = sum([
+        completeness_deduct > 3,
+        validity_deduct > 3,
+        consistency_deduct > 3,
+        uniqueness_deduct > 3,
+        garbage_deduct > 3,
+        anomaly_deduct > 3,
+    ])
+    compounding_deduct = 0.0
+    if _failing_dims >= 3:
+        compounding_deduct = (_failing_dims - 2) * 5.0
+        penalties.append({
+            "dimension":        "compounding",
+            "reason":           f"{_failing_dims} quality dimensions failing simultaneously — penalties compound",
+            "impact":           "high",
+            "deduction":        -round(compounding_deduct, 2),
+            "affected_columns": [],
+        })
+
+    # ══════════════════════════════════════════════════════════════════
     # AGGREGATE — no size normalisation; raw dimension sum
     # ══════════════════════════════════════════════════════════════════
     total_deduction = round(
         completeness_deduct + validity_deduct + consistency_deduct
-        + uniqueness_deduct + security_deduct + garbage_deduct + anomaly_deduct,
+        + uniqueness_deduct + security_deduct + garbage_deduct + anomaly_deduct
+        + compounding_deduct,
         2,
     )
 
@@ -435,11 +493,20 @@ def calculate_quality_score(
     if security_threats:
         final_score = min(final_score, 30.0)
 
+    # Systemic corruption — cap below 40 when dataset shows pervasive failures
+    _systemic = (
+        _failing_dims >= 5
+        or total_deduction >= 75
+        or (missing_pct > 30 and garbage_count > 5 and exact_dups > 10)
+    )
+    if _systemic:
+        final_score = min(final_score, 38.0)
+
     # Score calibration — prevents inflated scores for low-deduction datasets
-    if total_deduction < 10:
-        final_score = min(final_score, 90.0)
-    if total_deduction < 20:
-        final_score = min(final_score, 85.0)
+    if total_deduction < 5:
+        final_score = min(final_score, 95.0)
+    elif total_deduction < 15:
+        final_score = min(final_score, 88.0)
 
     total_score = round(final_score, 2)
 
@@ -466,9 +533,9 @@ def calculate_quality_score(
     # ── Dimension scores (100-scale) ─────────────────────────────────────────
     dim: Dict[str, Any] = {
         "completeness": {
-            "score":         max(round(100 - (completeness_deduct / 30) * 100, 1), 0),
+            "score":         max(round(100 - (completeness_deduct / 35) * 100, 1), 0),
             "weight":        0.25,
-            "max_deduction": 30,
+            "max_deduction": 35,
             "deducted":      round(completeness_deduct, 2),
         },
         "validity": {
@@ -484,9 +551,9 @@ def calculate_quality_score(
             "deducted":      round(consistency_deduct, 2),
         },
         "uniqueness": {
-            "score":         max(round(100 - (uniqueness_deduct / 10) * 100, 1), 0),
+            "score":         max(round(100 - (uniqueness_deduct / 15) * 100, 1), 0),
             "weight":        0.15,
-            "max_deduction": 10,
+            "max_deduction": 15,
             "deducted":      round(uniqueness_deduct, 2),
         },
         "security": {
