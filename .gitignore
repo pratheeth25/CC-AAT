@@ -41,7 +41,6 @@ backend/data/test_samples/
 # Ignore uploaded datasets
 
 *.csv
-*.json
 *.parquet
 
 # (Optional) keep sample files if needed
